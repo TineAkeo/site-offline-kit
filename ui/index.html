@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offline Kit</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --card: #ffffff; --ink: #1b1d1f; --muted: #6b7076; --line: #e3e4e1;
+    --accent: #2f6f4f; --accent-ink: #ffffff; --accent-soft: #e6f0ea;
+    --warn: #8a5a00; --warn-soft: #fbf1dc; --bad: #a3322a; --bad-soft: #f8e4e2;
+    --field: #ffffff; --code: #f1f1ee; --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141516; --card: #1c1e20; --ink: #ecedee; --muted: #9aa0a6; --line: #2e3134;
+      --accent: #5fb58a; --accent-ink: #0d1f16; --accent-soft: #1d2d25;
+      --warn: #e2b35a; --warn-soft: #2d2518; --bad: #ef8a80; --bad-soft: #2f1d1b;
+      --field: #232528; --code: #17181a; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 16px 80px; }
+  header { margin-bottom: 28px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -.01em; }
+  .sub { color: var(--muted); margin: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+          padding: 22px; margin-bottom: 18px; box-shadow: var(--shadow); }
+  h2 { font-size: 16px; margin: 0 0 14px; }
+  label { display: block; font-weight: 600; font-size: 13px; margin: 14px 0 6px; }
+  label:first-child { margin-top: 0; }
+  .hint { color: var(--muted); font-size: 13px; font-weight: 400; }
+  input[type=text], input[type=url] {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px;
+    background: var(--field); color: var(--ink); font: inherit; }
+  input:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .row { display: flex; gap: 8px; }
+  .row > input { flex: 1; min-width: 0; }
+  .targets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .target { border: 1px solid var(--line); border-radius: 11px; padding: 12px 14px; cursor: pointer;
+            background: var(--field); text-align: left; color: var(--ink); font: inherit; }
+  .target strong { display: block; font-size: 14px; }
+  .target span { color: var(--muted); font-size: 13px; }
+  .target[aria-pressed=true] { border-color: var(--accent); background: var(--accent-soft); }
+  details { margin-top: 16px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 600; }
+  .check { display: flex; gap: 8px; align-items: flex-start; font-weight: 400; font-size: 14px; margin-top: 10px; }
+  .check input { margin-top: 4px; }
+  button.btn { border: 1px solid var(--line); background: var(--field); color: var(--ink);
+               padding: 9px 14px; border-radius: 9px; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  button.btn:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  button.primary:hover { filter: brightness(1.05); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+  .stat { background: var(--code); border-radius: 10px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  .status { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex: none; }
+  .dot.live { animation: pulse 1.2s ease-in-out infinite; }
+  .dot.bad { background: var(--bad); }
+  @keyframes pulse { 50% { opacity: .3; } }
+  @media (prefers-reduced-motion: reduce) { .dot.live { animation: none; } }
+  .statusline { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  pre { background: var(--code); border-radius: 10px; padding: 12px; font: 12px/1.45 ui-monospace, Menlo, monospace;
+        max-height: 280px; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 10px 0 0; }
+  .note { border-radius: 10px; padding: 12px 14px; margin-top: 16px; font-size: 14px; }
+  .note.info { background: var(--accent-soft); }
+  .note.warn { background: var(--warn-soft); color: var(--warn); }
+  .note.bad { background: var(--bad-soft); color: var(--bad); }
+  .note ol { margin: 6px 0 0; padding-left: 20px; }
+  .note code, .mono { font: 13px ui-monospace, Menlo, monospace; }
+  .build { display: flex; justify-content: space-between; gap: 12px; align-items: center;
+           padding: 12px 0; border-top: 1px solid var(--line); }
+  .build:first-of-type { border-top: 0; padding-top: 0; }
+  .build .meta { min-width: 0; }
+  .build .site { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .build .small { color: var(--muted); font-size: 13px; }
+  .build .btns { display: flex; gap: 6px; flex: none; }
+  .build .btns .btn { padding: 6px 10px; font-size: 13px; }
+  .pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 99px;
+          background: var(--accent-soft); color: var(--accent); margin-left: 6px; vertical-align: 1px; }
+  .empty { color: var(--muted); font-size: 14px; }
+  #push-box { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .hidden { display: none !important; }
+  @media (max-width: 560px) {
+    .targets { grid-template-columns: 1fr; }
+    .build { flex-direction: column; align-items: stretch; }
+    .build .btns { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Offline Kit</h1>
+    <p class="sub">Turn a site you own into an app that works on iPads with no internet.</p>
+  </header>
+
+  <!-- New build -->
+  <section class="card" id="form-card">
+    <h2>New build</h2>
+    <label for="url">Website address</label>
+    <input id="url" type="url" placeholder="https://www.example.com" autocomplete="url" spellcheck="false">
+
+    <label>Where will it run?</label>
+    <div class="targets" role="group" aria-label="Target">
+      <button type="button" class="target" data-target="webflow-cloud" aria-pressed="true">
+        <strong>Webflow Cloud</strong>
+        <span>An app at <span class="mono" id="base-preview">/app</span> on your Webflow site. Small deploy; media saved on first visit.</span>
+      </button>
+      <button type="button" class="target" data-target="local" aria-pressed="false">
+        <strong>Local folder</strong>
+        <span>Everything downloaded. For this computer, a laptop on a TV, Netlify or Cloudflare Pages.</span>
+      </button>
+    </div>
+
+    <label for="name">App name <span class="hint">— shown under the Home Screen icon (optional)</span></label>
+    <input id="name" type="text" placeholder="From the site's title">
+
+    <details>
+      <summary>More options</summary>
+      <div id="base-row">
+        <label for="base">Mount path <span class="hint">— must match the path you set in Webflow Cloud</span></label>
+        <input id="base" type="text" value="/app" spellcheck="false">
+      </div>
+      <label for="out">Build into folder <span class="hint">— e.g. your GitHub repo checkout (optional)</span></label>
+      <div class="row">
+        <input id="out" type="text" placeholder="Default: out/&lt;site&gt;-&lt;target&gt; in the kit folder" spellcheck="false">
+        <button type="button" class="btn" id="choose">Choose…</button>
+      </div>
+      <label class="check"><input type="checkbox" id="keep-embeds">
+        <span>Keep YouTube, Vimeo, maps and form embeds <span class="hint">(they only work online)</span></span></label>
+      <label class="check"><input type="checkbox" id="allow-indexing">
+        <span>Let search engines index the copy <span class="hint">(off by default)</span></span></label>
+    </details>
+
+    <div class="actions">
+      <button type="button" class="btn primary" id="build">Build</button>
+    </div>
+    <div class="note bad hidden" id="form-error" role="alert"></div>
+  </section>
+
+  <!-- Progress + result -->
+  <section class="card hidden" id="run-card" aria-live="polite">
+    <div class="status">
+      <span class="dot live" id="dot"></span>
+      <h2 style="margin:0" id="run-title">Building…</h2>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="n-pages">0</b><span>pages</span></div>
+      <div class="stat"><b id="n-files">0</b><span id="files-label">files saved</span></div>
+      <div class="stat hidden" id="size-stat"><b id="n-size">–</b><span>deploy size (limit 100 MB)</span></div>
+      <div class="stat hidden" id="fail-stat"><b id="n-fail">0</b><span>files failed</span></div>
+    </div>
+    <p class="statusline" id="statusline"></p>
+
+    <div id="result" class="hidden">
+      <div id="next"></div>
+      <div class="actions">
+        <button type="button" class="btn primary" id="r-preview">Preview offline</button>
+        <button type="button" class="btn" id="r-open">Open folder</button>
+        <button type="button" class="btn" id="r-again">New build</button>
+      </div>
+      <div id="push-box" class="hidden">
+        <label for="repo">Push to GitHub</label>
+        <div class="row">
+          <input id="repo" type="text" placeholder="new repo name, e.g. my-site-offline" spellcheck="false">
+          <button type="button" class="btn" id="r-push">Push</button>
+        </div>
+        <p class="hint" id="push-hint"></p>
+        <div class="note hidden" id="push-msg"></div>
+      </div>
+    </div>
+
+    <details id="log-box">
+      <summary>Full log</summary>
+      <pre id="log"></pre>
+    </details>
+    <div class="actions" id="running-actions">
+      <button type="button" class="btn" id="stop">Stop</button>
+    </div>
+  </section>
+
+  <!-- History -->
+  <section class="card">
+    <h2>Your builds</h2>
+    <div id="builds"><p class="empty">Nothing built yet.</p></div>
+  </section>
+</main>
+
+<script>
+const TOKEN = "__TOKEN__";
+const $ = (id) => document.getElementById(id);
+let target = "webflow-cloud";
+let current = null; // result of the build shown in the run card
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { "X-Kit-Token": TOKEN, "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return res.json();
+}
+
+// --- form ---------------------------------------------------------------
+document.querySelectorAll(".target").forEach((b) => b.addEventListener("click", () => setTarget(b.dataset.target)));
+function setTarget(t) {
+  target = t;
+  document.querySelectorAll(".target").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.target === t)));
+  $("base-row").classList.toggle("hidden", t !== "webflow-cloud");
+}
+$("base").addEventListener("input", () => { $("base-preview").textContent = "/" + ($("base").value.replace(/^\/+|\/+$/g, "") || "app"); });
+$("choose").addEventListener("click", async () => {
+  const r = await api("/api/choose-folder", {});
+  if (r.path) $("out").value = r.path;
+  if (r.error) showFormError(r.error);
+});
+function showFormError(msg) { $("form-error").textContent = msg; $("form-error").classList.toggle("hidden", !msg); }
+
+$("build").addEventListener("click", startBuild);
+$("url").addEventListener("keydown", (e) => { if (e.key === "Enter") startBuild(); });
+async function startBuild(opts) {
+  const body = opts && opts.url ? opts : {
+    url: $("url").value, target, name: $("name").value, base: $("base").value,
+    out: $("out").value, keep_embeds: $("keep-embeds").checked, allow_indexing: $("allow-indexing").checked,
+  };
+  showFormError("");
+  const r = await api("/api/build", body);
+  if (r.error) { showFormError(r.error); return; }
+  watch();
+}
+
+// --- progress -----------------------------------------------------------
+function resetRun() {
+  $("run-card").classList.remove("hidden");
+  $("form-card").classList.add("hidden");
+  $("result").classList.add("hidden");
+  $("running-actions").classList.remove("hidden");
+  $("dot").className = "dot live";
+  $("run-title").textContent = "Building…";
+  $("log").textContent = "";
+  $("statusline").textContent = "Starting…";
+  ["n-pages", "n-files"].forEach((id) => $(id).textContent = "0");
+  $("size-stat").classList.add("hidden");
+  $("fail-stat").classList.add("hidden");
+  $("files-label").textContent = "files saved";
+  $("log-box").open = false;
+}
+
+function watch() {
+  resetRun();
+  let pages = 0, files = 0;
+  const es = new EventSource("/api/stream?token=" + encodeURIComponent(TOKEN));
+  es.onmessage = (m) => {
+    const ev = JSON.parse(m.data);
+    if (ev.type === "log") {
+      const line = ev.line;
+      const log = $("log");
+      const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 8;
+      log.textContent += line + "\n";
+      if (atBottom) log.scrollTop = log.scrollHeight;
+      if (line.startsWith("PAGE ")) { pages++; $("n-pages").textContent = pages; $("statusline").textContent = "Page " + line.slice(5); }
+      else if (line.startsWith("  asset")) { files++; $("n-files").textContent = files; }
+      else if (line.trim()) $("statusline").textContent = line.trim();
+    } else if (ev.type === "done") {
+      es.close();
+      finish(ev);
+    }
+  };
+  es.onerror = () => { /* the browser retries on its own */ };
+}
+
+$("stop").addEventListener("click", () => api("/api/stop", {}));
+
+function finish(ev) {
+  $("running-actions").classList.add("hidden");
+  if (!ev.ok || !ev.result) {
+    $("dot").className = "dot bad";
+    $("run-title").textContent = ev.code === -15 || ev.code === 143 ? "Stopped" : "Build failed";
+    $("statusline").textContent = "See the log below for what went wrong.";
+    $("log-box").open = true;
+    $("result").classList.remove("hidden");
+    $("next").innerHTML = "";
+    ["r-preview", "r-open"].forEach((id) => $(id).classList.add("hidden"));
+    $("push-box").classList.add("hidden");
+    return;
+  }
+  const r = ev.result;
+  current = r;
+  // Remember the folder, then show the listed entry: it includes git status.
+  api("/api/remember", { path: r.out }).then(() => api("/api/builds")).then(({ builds }) => {
+    showResult(builds.find((b) => b.out === r.out) || r);
+    loadBuilds();
+  });
+}
+
+function showResult(r) {
+  current = r;
+  $("run-card").classList.remove("hidden");
+  $("form-card").classList.add("hidden");
+  $("running-actions").classList.add("hidden");
+  $("dot").className = "dot";
+  $("run-title").textContent = "Ready — " + host(r.url);
+  $("n-pages").textContent = r.pages;
+  $("n-files").textContent = r.files;
+  $("files-label").textContent = r.cdn_files ? `files for offline (${r.cdn_files} from Webflow's CDN)` : "files for offline";
+  const cloud = r.target === "webflow-cloud";
+  $("size-stat").classList.toggle("hidden", !cloud);
+  $("n-size").textContent = r.compressed_mb + " MB";
+  $("fail-stat").classList.toggle("hidden", !r.failed);
+  $("n-fail").textContent = r.failed;
+  $("statusline").textContent = r.out;
+  ["r-preview", "r-open"].forEach((id) => $(id).classList.remove("hidden"));
+  $("result").classList.remove("hidden");
+
+  let html = "";
+  if (cloud && r.compressed_mb > 100) {
+    html += `<div class="note bad">This is over Webflow Cloud's 100 MB limit, so the deploy will fail.</div>`;
+  }
+  if (r.failed) {
+    html += `<div class="note warn">${r.failed} file${r.failed > 1 ? "s" : ""} couldn't be downloaded. That's usually because they're also broken on the live site. The details are in the full log.</div>`;
+  }
+  html += cloud
+    ? `<div class="note info"><strong>Next:</strong><ol>
+         <li>Push this folder to GitHub (below).</li>
+         <li>First time only: in Webflow go to <b>Apps → Webflow Cloud → Create new app</b>, pick the repo, choose <b>Existing site</b>, and set the mount path to <code>${esc(r.base)}</code>. After that, every push redeploys.</li>
+         <li>On the iPad, open <code>https://your-site${esc(r.base)}</code> in Safari, tap Share → <b>Add to Home Screen</b>, and wait for “Ready offline ✓”.</li></ol></div>`
+    : `<div class="note info"><strong>Next:</strong> <b>Preview offline</b> opens it on this computer. Wait for “Ready offline ✓”, and it then works with no internet in that browser. To use it on iPads, upload the folder to Netlify or Cloudflare Pages (details in the kit's README).</div>`;
+  $("next").innerHTML = html;
+  setupPush(r);
+}
+
+// --- actions -------------------------------------------------------------
+$("r-preview").addEventListener("click", () => current && api("/api/preview", { path: current.out }));
+$("r-open").addEventListener("click", () => current && api("/api/open", { path: current.out }));
+$("r-again").addEventListener("click", () => {
+  $("run-card").classList.add("hidden");
+  $("form-card").classList.remove("hidden");
+  $("url").focus();
+});
+
+function setupPush(r) {
+  const g = r.git || {};
+  const box = $("push-box");
+  box.classList.toggle("hidden", r.target !== "webflow-cloud" && !g.repo);
+  $("push-msg").classList.add("hidden");
+  $("repo").classList.toggle("hidden", !!g.remote);
+  if (g.remote) {
+    $("push-hint").innerHTML = "Commits and pushes to <span class='mono'>" + esc(g.remote) + "</span>. Webflow Cloud redeploys on its own.";
+    $("r-push").textContent = "Commit & push";
+  } else if (g.gh === false) {
+    $("push-hint").textContent = "The GitHub CLI (gh) isn't installed, so a repo can't be created from here. Build into an existing repo folder instead (More options → Build into folder).";
+    $("r-push").disabled = true;
+  } else {
+    $("r-push").disabled = false;
+    $("push-hint").textContent = "Creates a new private GitHub repo with this build and pushes it.";
+    $("r-push").textContent = "Create private repo & push";
+    $("r-push").disabled = false;
+  }
+}
+$("r-push").addEventListener("click", async () => {
+  if (!current) return;
+  const btn = $("r-push"); btn.disabled = true; const label = btn.textContent; btn.textContent = "Pushing…";
+  const r = await api("/api/push", { path: current.out, new_repo: $("repo").value,
+                                     message: "Offline build of " + host(current.url) });
+  btn.disabled = false; btn.textContent = label;
+  const msg = $("push-msg");
+  msg.classList.remove("hidden");
+  msg.className = "note " + (r.ok ? "info" : "bad");
+  msg.textContent = r.ok ? "Pushed. " + (current.target === "webflow-cloud" ? "Webflow Cloud will redeploy in about a minute." : "") : (r.error || "Push failed.");
+  loadBuilds();
+  const b = (await api("/api/builds")).builds.find((x) => x.out === current.out);
+  if (b && r.ok) { current.git = b.git; setupPush(current); msg.classList.remove("hidden"); }
+});
+
+// --- history -------------------------------------------------------------
+async function loadBuilds() {
+  const { builds, running } = await api("/api/builds");
+  const el = $("builds");
+  if (!builds.length) { el.innerHTML = '<p class="empty">Nothing built yet.</p>'; return running; }
+  el.innerHTML = "";
+  for (const b of builds) {
+    const row = document.createElement("div");
+    row.className = "build";
+    const when = b.built_at ? new Date(b.built_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
+    row.innerHTML = `<div class="meta">
+        <div class="site">${esc(host(b.url))}<span class="pill">${b.target === "webflow-cloud" ? "Webflow Cloud " + esc(b.base) : "Local"}</span></div>
+        <div class="small">${b.pages} pages · ${b.files} files · ${esc(when)}</div></div>
+      <div class="btns">
+        <button class="btn" data-a="details">Details</button>
+        <button class="btn" data-a="preview">Preview</button>
+        <button class="btn" data-a="open">Folder</button>
+        <button class="btn" data-a="rebuild">Rebuild</button>
+      </div>`;
+    row.querySelector('[data-a=details]').onclick = () => { showResult(b); window.scrollTo({ top: 0, behavior: "smooth" }); };
+    row.querySelector('[data-a=preview]').onclick = () => api("/api/preview", { path: b.out });
+    row.querySelector('[data-a=open]').onclick = () => api("/api/open", { path: b.out });
+    row.querySelector('[data-a=rebuild]').onclick = () => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      startBuild({ url: b.url, target: b.target, name: b.name, base: b.base, out: b.out });
+    };
+    el.appendChild(row);
+  }
+  return running;
+}
+
+function host(u) { try { return new URL(u).host.replace(/^www\./, ""); } catch { return u; } }
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+// keep the app alive while this page is open
+setInterval(() => api("/api/ping").catch(() => {}), 30000);
+loadBuilds().then((running) => { if (running) watch(); });
+$("url").focus();
+</script>
+</body>
+</html>

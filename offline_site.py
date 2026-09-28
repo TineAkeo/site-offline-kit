@@ -664,12 +664,13 @@ def main():
     n_files, n_remote, version = add_offline_support(args.name or site_name(home_html, bare), noindex)
     pruned = prune_stale()
 
-    print(f"\nDone: {len(seen)} pages, {n_files} files for offline "
+    saved_pages = sum(1 for p in produced if p.endswith(".html"))
+    print(f"\nDone: {saved_pages} pages, {n_files} files for offline "
           f"({n_remote} on the CDN), version {version}.")
     if pruned:
         print(f"Removed {pruned} stale files from the previous build.")
+    mb = compressed_mb()
     if args.target == "webflow-cloud":
-        mb = compressed_mb()
         print(f"Deploy size: {mb:.1f} MB compressed (Webflow Cloud limit: 100 MB)"
               + ("  <-- TOO BIG" if mb > 100 else ""))
     if failed:
@@ -677,6 +678,20 @@ def main():
         for u, e in failed[:40]:
             print("  ", e, u[:150])
     print(f"\nOutput: {OUT}")
+
+    # Build summary: read by the Offline Kit app (kit_app.py) to list and
+    # rebuild builds. A dotfile, so it is never deployed or pruned.
+    import datetime
+    summary = {
+        "url": START, "target": args.target, "base": BASE, "name": args.name or "",
+        "out": OUT, "pages": saved_pages, "files": n_files, "cdn_files": n_remote,
+        "version": version, "compressed_mb": round(mb, 1), "failed": len(failed),
+        "failures": [f"{e} {u}" for u, e in failed[:40]],
+        "built_at": datetime.datetime.now().isoformat(timespec="seconds"),
+    }
+    with open(os.path.join(OUT, ".offline-build.json"), "w") as f:
+        json.dump(summary, f, indent=2)
+    print("RESULT " + json.dumps(summary), flush=True)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,11 @@
+#!/bin/bash
+# Launcher for the Offline Kit app: starts kit_app.py, which opens the UI in
+# your browser. It quits by itself a few minutes after the page is closed.
+KIT="$(cd "$(dirname "$0")/../../.." && pwd)"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+PY="$(command -v python3)"
+if [ -z "$PY" ]; then
+  osascript -e 'display alert "Offline Kit needs Python 3" message "Install it from python.org, then open Offline Kit again."'
+  exit 1
+fi
+exec "$PY" "$KIT/kit_app.py" >> "$KIT/out/.kit_app.log" 2>&1

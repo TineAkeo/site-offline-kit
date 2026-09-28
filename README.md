@@ -6,6 +6,27 @@ folder that saves the whole site on first visit and then works with no internet.
 
 Built and tested on Webflow sites. It needs only Python 3.8+, with no installs.
 
+## The app
+
+Double-click **Offline Kit.app**. It opens in your browser; nothing leaves
+your computer except the downloads from the site itself. In the app you can:
+
+- Enter the site address and choose **Webflow Cloud** or **Local folder**.
+- Watch the build: pages, files and the live log.
+- Use the result: **Preview offline**, **Open folder**, and **Push to
+  GitHub**. The push creates a private repo on the first push, or commits and
+  pushes if the folder is already a repo.
+- See your past builds, with **Rebuild** and **Preview**.
+
+To build straight into an existing repo checkout, use *More options → Build
+into folder*. The app quits by itself a few minutes after you close its page.
+
+On other systems, or if macOS blocks the app, run it with:
+`python3 kit_app.py`. On a Mac you can also right-click the app and choose
+**Open** the first time.
+
+## Command line
+
 ```bash
 python3 offline_site.py https://www.example.com                         # local / Netlify / Cloudflare Pages
 python3 offline_site.py https://www.example.com --target webflow-cloud  # Webflow Cloud app at /app
