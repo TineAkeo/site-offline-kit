@@ -21,9 +21,17 @@ your computer except the downloads from the site itself. In the app you can:
 To build straight into an existing repo checkout, use *More options → Build
 into folder*. The app quits by itself a few minutes after you close its page.
 
-On other systems, or if macOS blocks the app, run it with:
-`python3 kit_app.py`. On a Mac you can also right-click the app and choose
-**Open** the first time.
+**The first time you open it,** macOS asks whether Offline Kit may use the
+folder it lives in, e.g. Downloads. Click **Allow**. If you clicked "Don't
+Allow", turn it on in System Settings → Privacy & Security → Files and
+Folders → Offline Kit. If macOS says it can't check the app, right-click it
+and choose **Open**.
+
+While the app is running it shows in the Dock. It quits itself a few
+minutes after its page is closed. If you change `launcher/Offline Kit.applescript`,
+rebuild the app with `osacompile` (see the comment at the top of that file).
+
+On other systems, run it with `python3 kit_app.py`.
 
 ## Command line
 
