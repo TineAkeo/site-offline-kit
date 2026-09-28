@@ -452,7 +452,7 @@ def app_id():
     return slug or "site"
 
 
-def add_offline_support(name, noindex):
+def add_offline_support(name, noindex, start_page="/index.html"):
     head = f'<link rel="manifest" href="{BASE}/manifest.json">'
     if noindex:
         head += '<meta name="robots" content="noindex, nofollow">'
@@ -469,7 +469,7 @@ def add_offline_support(name, noindex):
     with open(os.path.join(OUT, "manifest.json"), "w") as f:
         json.dump({
             "name": name, "short_name": name[:12],
-            "start_url": f"{BASE}/index.html", "scope": f"{BASE}/",
+            "start_url": href_for(start_page), "scope": f"{BASE}/",
             "display": "standalone", "background_color": "#ffffff", "theme_color": "#ffffff",
             "icons": [{"src": icon.group(1), "sizes": "256x256"}] if icon else [],
         }, f, indent=2)
@@ -616,7 +616,14 @@ def main():
           f"media on CDN: {bool(REMOTE_HOSTS)}")
 
     start_path = urlsplit(START).path or "/"
-    queue, seen, src_path = [norm_page(start_path)], {norm_page(start_path)}, {norm_page(start_path): start_path}
+    start_norm = norm_page(start_path)
+    queue, seen, src_path = [start_norm], {start_norm}, {start_norm: start_path}
+    if start_norm != "/":
+        # Started from a sub-page: still include the home page (sites don't
+        # always link back to it), and open the installed app on the sub-page.
+        queue.append("/")
+        seen.add("/")
+        src_path["/"] = "/"
     home_html = ""
     while queue:
         norm = queue.pop(0)
@@ -652,16 +659,24 @@ def main():
                       lambda m: m.group(1) + rewrite_css(m.group(2).replace("&quot;", '"'), final)
                       .replace('"', "&quot;") + m.group(3), html)
         save(page_local(norm), html.encode("utf-8"))
-        if norm == norm_page(start_path):
+        if norm == start_norm:
             home_html = html
 
+    if page_local(start_norm) not in produced:
+        sys.exit(f"Couldn't load {START} as a web page, so nothing was built. "
+                 "Check the address opens in a browser.")
     if "/index.html" not in produced:
-        sys.exit("Couldn't fetch the home page; nothing was built.")
+        # No usable home page: the start page doubles as index.html. Links are
+        # root-relative, so the copy works at the new location.
+        shutil.copy(os.path.join(OUT, page_local(start_norm).lstrip("/")), os.path.join(OUT, "index.html"))
+        produced.add("/index.html")
+        print(f"No home page found; using {start_norm} as the home page.")
     rewrite_script_page_paths(seen)
     fetch_finsweet_chunks()
     noindex = not args.allow_indexing
     write_target_files(args.target, noindex)
-    n_files, n_remote, version = add_offline_support(args.name or site_name(home_html, bare), noindex)
+    n_files, n_remote, version = add_offline_support(args.name or site_name(home_html, bare), noindex,
+                                                     start_page=page_local(start_norm))
     pruned = prune_stale()
 
     saved_pages = sum(1 for p in produced if p.endswith(".html"))
