@@ -1,0 +1,24 @@
+{
+  "_about": "Extra removals for www.reframe.systems, on top of the kit's general rules (trackers, cookie banners, external iframes/embeds). Loaded automatically for this host.",
+
+  "remove_sections_containing": [
+    "id=\"open-tour\""
+  ],
+
+  "remove_patterns": [
+    "<a\\b[^>]*data-virtual=\"open\"[^>]*>(?:(?!</a>).)*</a>",
+    "<div class=\"share-wrap external-post-wrap\">(?:(?!</div>).)*?youtube\\.com(?:(?!</div>).)*</div>",
+    "<script\\b[^>]*>(?:(?!</script>).)*?(?:data-virtual|open-tour|\\.datepicker\\()(?:(?!</script>).)*</script>",
+    "<script\\b[^>]*fengyuanchen[^>]*>\\s*</script>",
+    "<link\\b[^>]*fengyuanchen[^>]*>"
+  ],
+
+  "remove_elements": [
+    ["<div class=\"popup-video\"", "div"],
+    ["<div class=\"play-mobile\">(?=<a id=\"btnPlay\")", "div"],
+    ["<div class=\"virtual-tour-popup\"", "div"],
+    ["<div class=\"virtual-tour-code\\b", "div"],
+    ["(?s)<div class=\"video-post-wrap\">(?=(?:(?!</iframe>).)*(?:youtube|embedly))", "div"],
+    ["<div class=\"code-embed hubspot-code\\b", "div"]
+  ]
+}
