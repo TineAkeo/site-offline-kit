@@ -26,6 +26,11 @@ on:
   schedule:
     - cron: "{cron}"
   workflow_dispatch:          # "Run workflow" button in the Actions tab
+    inputs:
+      force:
+        description: "Rebuild even if the site wasn't republished"
+        type: boolean
+        default: false
   repository_dispatch:        # for a "site published" webhook relay
     types: [site-published]
 
@@ -44,10 +49,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build from the live site
+        # --skip-unchanged: stop early unless the site was republished since
+        # the last build (Webflow's "Last Published" stamp).
         # --strict: a temporary failure stops here, so nothing half-built is pushed.
         run: >
           python3 .kit/offline_site.py "{url}"
           --target {target} {base_arg} --out . --strict
+          ${{{{ inputs.force && ' ' || '--skip-unchanged' }}}}
 
       - name: Commit and push if the site changed
         run: |

@@ -65,6 +65,7 @@ MAX_PAGES_DEFAULT = 500
 # Failures that mean "this file is gone" (also broken on the live site), as
 # opposed to a network hiccup worth retrying. Used by --strict.
 PERMANENT_ERROR_RE = re.compile(r"HTTP Error (400|401|403|404|410)\b")
+LAST_PUBLISHED_RE = re.compile(r"<!--\s*Last Published:\s*(.*?)\s*-->")
 
 # --- Build state (set in main) ------------------------------------------------------
 OUT = None            # output folder
@@ -613,6 +614,9 @@ def main():
     ap.add_argument("--allow-indexing", action="store_true",
                     help="don't mark the copy noindex (default: keep it out of search engines)")
     ap.add_argument("--max-pages", type=int, default=MAX_PAGES_DEFAULT)
+    ap.add_argument("--skip-unchanged", action="store_true",
+                    help="exit without building if the site hasn't been republished since the "
+                         "last build (Webflow's 'Last Published' stamp; for scheduled rebuilds)")
     ap.add_argument("--strict", action="store_true",
                     help="stop with an error, before cleaning up, if any page or file failed for "
                          "a possibly temporary reason (for scheduled rebuilds)")
@@ -649,6 +653,26 @@ def main():
         sys.exit(f"Config not found: {args.config}")
     print(f"Site: {START}\nOutput: {OUT}\nTarget: {args.target}  base: {BASE or '/'}  "
           f"media on CDN: {bool(REMOTE_HOSTS)}")
+
+    # Webflow stamps every page with <!-- Last Published: ... -->, which only
+    # changes on Publish. Comparing HTML instead would see "changes" on sites
+    # with randomised content (e.g. shuffled related posts) on every run.
+    stamp_file = os.path.join(OUT, ".site-last-published")
+    published = None
+    try:
+        m = LAST_PUBLISHED_RE.search(fetch(START)[0].decode("utf-8", "replace"))
+        published = m.group(1).strip() if m else None
+    except Exception:
+        pass
+    if args.skip_unchanged and published and os.path.isfile(os.path.join(OUT, "index.html")):
+        try:
+            previous = open(stamp_file).read().strip()
+        except OSError:
+            previous = None
+        if previous == published:
+            print(f"Site not republished since the last build ({published}); nothing to do.")
+            return
+        print(f"Site republished: {previous or 'first build'} -> {published}")
 
     start_path = urlsplit(START).path or "/"
     start_norm = norm_page(start_path)
@@ -724,6 +748,9 @@ def main():
             print("  ", e, u[:150])
         sys.exit(3)
     pruned = prune_stale()
+    if published:  # a dotfile: kept by prune, not deployed by Webflow Cloud
+        with open(stamp_file, "w") as f:
+            f.write(published + "\n")
 
     saved_pages = sum(1 for p in produced if p.endswith(".html"))
     print(f"\nDone: {saved_pages} pages, {n_files} files for offline "
