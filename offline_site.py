@@ -64,7 +64,9 @@ EMBED_SCRIPT_RE = _script_re(EMBED_APIS)
 MAX_PAGES_DEFAULT = 500
 # Failures that mean "this file is gone" (also broken on the live site), as
 # opposed to a network hiccup worth retrying. Used by --strict.
-PERMANENT_ERROR_RE = re.compile(r"HTTP Error (400|401|403|404|410)\b")
+PERMANENT_ERROR_RE = re.compile(
+    r"HTTP Error (400|401|403|404|410)\b"
+    r"|URL can't contain control characters|unknown url type|nonnumeric port")
 LAST_PUBLISHED_RE = re.compile(r"<!--\s*Last Published:\s*(.*?)\s*-->")
 
 # --- Build state (set in main) ------------------------------------------------------
@@ -340,6 +342,8 @@ def rewrite_attrs(html, page_url, on_page):
     def one(u):
         raw = u.strip()
         if not raw or raw.startswith(("#", "data:", "mailto:", "tel:", "javascript:", "blob:", "{")):
+            return u
+        if re.search(r"\s", raw):  # not an address, e.g. placeholder text pasted into a src
             return u
         absu = urljoin(page_url, htmlmod.unescape(raw))
         sp = urlsplit(absu)
