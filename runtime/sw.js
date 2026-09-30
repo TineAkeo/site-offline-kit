@@ -26,16 +26,44 @@ function unredirect(res) {
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers });
 }
 
+// The copy this device already has (an older version of this app), with the
+// per-file content hashes from its precache.json, so an update can keep
+// unchanged files instead of downloading them again.
+async function previousCopy() {
+  for (const name of (await caches.keys()).reverse()) {
+    if (!name.startsWith(APP + '-') || name === CACHE) continue;
+    const old = await caches.open(name);
+    const listRes = await old.match(keyFor('precache.json'));
+    const hashes = listRes ? ((await listRes.json()).hashes || {}) : {};
+    return { cache: old, hashes };
+  }
+  return null;
+}
+
 async function precache() {
   const list = await (await fetch(new URL('precache.json', SCOPE), { cache: 'no-store' })).json();
   const cache = await caches.open(CACHE);
+  const prev = await previousCopy();
+  const hashes = list.hashes || {};
   const files = list.files;
   let i = 0;
+  async function reuse(url) {
+    if (!prev) return false;
+    const isRemote = new URL(url, SCOPE).origin !== location.origin;
+    // CDN files (Webflow's are content-addressed) never change at the same
+    // URL; this site's own files are kept only if their content is unchanged.
+    // precache.json itself is always fetched fresh.
+    if (!isRemote && !(hashes[url] && hashes[url] === prev.hashes[url])) return false;
+    const old = await prev.cache.match(keyFor(url));
+    if (!old) return false;
+    await cache.put(keyFor(url), old);
+    return true;
+  }
   async function worker() {
     while (i < files.length) {
       const url = files[i++];
       try {
-        if (!(await cache.match(keyFor(url)))) {
+        if (!(await cache.match(keyFor(url))) && !(await reuse(url))) {
           // CORS mode so CDN files are stored readable (Webflow's CDN allows
           // it), which the video byte-range handling below needs.
           const res = await fetch(url, { mode: 'cors', cache: 'reload' });

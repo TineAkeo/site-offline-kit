@@ -19,7 +19,7 @@ Targets
 Per-site tweaks (extra things to remove) go in sites/<host>.json, loaded
 automatically, or pass --config. Standard library only; Python 3.8+.
 """
-import argparse, gzip, hashlib, html as htmlmod, io, json, os, re, shutil, sys, tarfile, threading, zlib
+import argparse, gzip, hashlib, html as htmlmod, io, json, os, re, shutil, sys, tarfile, threading, time, zlib
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit, urljoin, unquote, quote
 from urllib.request import Request, urlopen
@@ -62,6 +62,9 @@ TRACKER_RE = re.compile(
 EMBED_SCRIPT_RE = _script_re(EMBED_APIS)
 
 MAX_PAGES_DEFAULT = 500
+# Failures that mean "this file is gone" (also broken on the live site), as
+# opposed to a network hiccup worth retrying. Used by --strict.
+PERMANENT_ERROR_RE = re.compile(r"HTTP Error (400|401|403|404|410)\b")
 
 # --- Build state (set in main) ------------------------------------------------------
 OUT = None            # output folder
@@ -82,16 +85,31 @@ failed = []
 
 
 # --- Fetching and local paths -------------------------------------------------------
+def with_retries(call, attempts=3):
+    """Run call(); retry timeouts, network errors and 5xx a couple of times
+    (a single slow CDN response shouldn't fail a scheduled rebuild). Errors
+    that mean the file is gone (404 etc.) are raised straight away."""
+    for i in range(attempts):
+        try:
+            return call()
+        except Exception as e:
+            if PERMANENT_ERROR_RE.match(str(e)) or i == attempts - 1:
+                raise
+            time.sleep(1 + 2 * i)
+
+
 def fetch(url):
-    req = Request(url, headers={"User-Agent": UA, "Accept-Encoding": "gzip, deflate"})
-    with urlopen(req, timeout=60) as r:
-        data = r.read()
-        enc = r.headers.get("Content-Encoding", "")
-        if enc == "gzip":
-            data = gzip.decompress(data)
-        elif enc == "deflate":
-            data = zlib.decompress(data)
-        return data, r.headers.get("Content-Type", ""), r.geturl()
+    def once():
+        req = Request(url, headers={"User-Agent": UA, "Accept-Encoding": "gzip, deflate"})
+        with urlopen(req, timeout=60) as r:
+            data = r.read()
+            enc = r.headers.get("Content-Encoding", "")
+            if enc == "gzip":
+                data = gzip.decompress(data)
+            elif enc == "deflate":
+                data = zlib.decompress(data)
+            return data, r.headers.get("Content-Type", ""), r.geturl()
+    return with_retries(once)
 
 
 def local_asset_path(url, ctype=""):
@@ -433,10 +451,13 @@ def webm_with_mp4_twin(urls):
 
 def verify_remote():
     """Drop CDN URLs that are dead (pages sometimes reference deleted images)."""
+    def check(u):
+        with urlopen(Request(u, headers={"User-Agent": UA, "Range": "bytes=0-0"}), timeout=30) as r:
+            return r.status in (200, 206)
+
     def ok(u):
         try:
-            with urlopen(Request(u, headers={"User-Agent": UA, "Range": "bytes=0-0"}), timeout=30) as r:
-                return r.status in (200, 206)
+            return with_retries(lambda: check(u))
         except Exception as e:
             failed.append((u, str(e)))
             return False
@@ -474,7 +495,7 @@ def add_offline_support(name, noindex, start_page="/index.html", offline_for="al
             "icons": [{"src": icon.group(1), "sizes": "256x256"}] if icon else [],
         }, f, indent=2)
 
-    local_files, sig = [], hashlib.sha1()
+    local_files, hashes, sig = [], {}, hashlib.sha1()
     for local in sorted(produced):
         fs = os.path.join(OUT, local.lstrip("/"))
         if not os.path.isfile(fs):
@@ -490,8 +511,12 @@ def add_offline_support(name, noindex, start_page="/index.html", offline_for="al
         if PRECACHE_SKIP.search(local):
             continue
         local_files.append(href_for(local))
-        st = os.stat(fs)
-        sig.update(f"{local}:{st.st_size}:{int(st.st_mtime)}".encode())
+        # Content, not timestamps: an unchanged site gives the same version,
+        # so scheduled rebuilds only commit (and redeploy) real changes.
+        with open(fs, "rb") as f:
+            digest = hashlib.sha1(f.read()).hexdigest()[:12]
+        hashes[href_for(local)] = digest
+        sig.update(f"{local}:{digest}".encode())
 
     remote = verify_remote() if remote_urls else []
     everything = local_files + remote
@@ -501,8 +526,11 @@ def add_offline_support(name, noindex, start_page="/index.html", offline_for="al
     version = sig.hexdigest()[:10]
     app = app_id()
 
+    # "hashes" lets devices updating to this version keep unchanged files
+    # from their previous copy instead of downloading them again (sw.js).
     with open(os.path.join(OUT, "precache.json"), "w") as f:
-        json.dump({"app": app, "version": version, "cache": f"{app}-{version}", "files": files}, f, indent=0)
+        json.dump({"app": app, "version": version, "cache": f"{app}-{version}", "files": files,
+                   "hashes": {u: h for u, h in hashes.items() if u not in skip}}, f, indent=0)
     with open(os.path.join(KIT, "runtime", "sw.js")) as f:
         sw = f.read().replace("__APP__", app).replace("__VERSION__", version)
     with open(os.path.join(OUT, "sw.js"), "w") as f:
@@ -585,6 +613,9 @@ def main():
     ap.add_argument("--allow-indexing", action="store_true",
                     help="don't mark the copy noindex (default: keep it out of search engines)")
     ap.add_argument("--max-pages", type=int, default=MAX_PAGES_DEFAULT)
+    ap.add_argument("--strict", action="store_true",
+                    help="stop with an error, before cleaning up, if any page or file failed for "
+                         "a possibly temporary reason (for scheduled rebuilds)")
     ap.add_argument("--offline-for", choices=["all", "installed"],
                     help="who saves the site for offline: every visitor, or only devices "
                          "you set up (installed app / ?offline=1). Default: installed for "
@@ -683,6 +714,15 @@ def main():
     n_files, n_remote, version = add_offline_support(args.name or site_name(home_html, bare), noindex,
                                                      start_page=page_local(start_norm),
                                                      offline_for=offline_for)
+    transient = [(u, e) for u, e in failed if not PERMANENT_ERROR_RE.match(e)]
+    if args.strict and transient:
+        # e.g. a timeout or 5xx mid-crawl: stop before pruning, so a scheduled
+        # rebuild never commits a copy with missing pages or files.
+        print(f"\n--strict: {len(transient)} downloads failed for reasons that may be "
+              "temporary; stopping without cleaning up or finishing the build:")
+        for u, e in transient[:20]:
+            print("  ", e, u[:150])
+        sys.exit(3)
     pruned = prune_stale()
 
     saved_pages = sum(1 for p in produced if p.endswith(".html"))
