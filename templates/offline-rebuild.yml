@@ -1,0 +1,53 @@
+# Rebuilds the offline app from the live site and deploys it when it changed.
+# Started by Webflow's "Site publish" webhook (through offline-publish-relay),
+# by hand from the Actions tab, and once a day as a safety net.
+# Settings live in .kit/site.json; the build logic in .kit/ci.py.
+# Written by site-offline-kit's setup_autorebuild.py.
+name: Rebuild offline app
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: "First run only: the live site, e.g. https://www.example.com"
+        type: string
+        required: false
+        default: ""
+      force:
+        description: "Rebuild even if the site wasn't republished"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "__CRON__"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: offline-rebuild
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build from the live site
+        env:
+          SITE_URL: ${{ inputs.site_url }}
+          FORCE: ${{ inputs.force }}
+        run: python3 .kit/ci.py
+
+      - name: Commit and push if the site changed
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes on the site; nothing to deploy."
+            exit 0
+          fi
+          git config user.name "offline-kit"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Rebuild offline app: site changed"
+          git push
