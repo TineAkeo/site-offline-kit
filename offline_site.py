@@ -452,11 +452,11 @@ def app_id():
     return slug or "site"
 
 
-def add_offline_support(name, noindex, start_page="/index.html"):
+def add_offline_support(name, noindex, start_page="/index.html", offline_for="all"):
     head = f'<link rel="manifest" href="{BASE}/manifest.json">'
     if noindex:
         head += '<meta name="robots" content="noindex, nofollow">'
-    body = f'<script src="{BASE}/offline.js"></script>'
+    body = f'<script src="{BASE}/offline.js" data-offline="{offline_for}"></script>'
     shutil.copy(os.path.join(KIT, "runtime", "offline.js"), os.path.join(OUT, "offline.js"))
     produced.update({"/offline.js", "/sw.js", "/precache.json", "/manifest.json"})
 
@@ -482,7 +482,7 @@ def add_offline_support(name, noindex, start_page="/index.html"):
         if local.endswith(".html"):
             with open(fs, encoding="utf-8") as f:
                 html = f.read()
-            if 'offline.js"></script>' not in html:
+            if '/offline.js"' not in html:
                 html = html.replace("</head>", head + "</head>", 1)
                 html = html.replace("</body>", body + "</body>", 1)
                 with open(fs, "w", encoding="utf-8") as f:
@@ -585,6 +585,10 @@ def main():
     ap.add_argument("--allow-indexing", action="store_true",
                     help="don't mark the copy noindex (default: keep it out of search engines)")
     ap.add_argument("--max-pages", type=int, default=MAX_PAGES_DEFAULT)
+    ap.add_argument("--offline-for", choices=["all", "installed"],
+                    help="who saves the site for offline: every visitor, or only devices "
+                         "you set up (installed app / ?offline=1). Default: installed for "
+                         "webflow-cloud, all for local")
     args = ap.parse_args()
 
     START = args.url if "://" in args.url else "https://" + args.url
@@ -675,8 +679,10 @@ def main():
     fetch_finsweet_chunks()
     noindex = not args.allow_indexing
     write_target_files(args.target, noindex)
+    offline_for = args.offline_for or ("installed" if args.target == "webflow-cloud" else "all")
     n_files, n_remote, version = add_offline_support(args.name or site_name(home_html, bare), noindex,
-                                                     start_page=page_local(start_norm))
+                                                     start_page=page_local(start_norm),
+                                                     offline_for=offline_for)
     pruned = prune_stale()
 
     saved_pages = sum(1 for p in produced if p.endswith(".html"))
@@ -699,6 +705,7 @@ def main():
     import datetime
     summary = {
         "url": START, "target": args.target, "base": BASE, "name": args.name or "",
+        "offline_for": offline_for,
         "out": OUT, "pages": saved_pages, "files": n_files, "cdn_files": n_remote,
         "version": version, "compressed_mb": round(mb, 1), "failed": len(failed),
         "failures": [f"{e} {u}" for u, e in failed[:40]],

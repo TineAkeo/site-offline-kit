@@ -105,12 +105,39 @@ by double-clicking; it has to be served.
 The "No package.json found" warning in Webflow's deploy form is expected for
 static apps.
 
-## Installing on an iPad
+## Who saves the site for offline
 
-1. Open the site in Safari on Wi-Fi, e.g. `https://yoursite.com/app/`.
-2. Share → **Add to Home Screen**, then open it from the icon.
-3. Wait for **Ready offline ✓**.
+For `webflow-cloud` builds, **only devices you set up** save the whole site
+(`--offline-for installed`, the default). Anyone else who opens the link,
+such as clients you send it to, just browses the site online: there's no big
+download and no badge. A device is set up when it opens the site:
+
+- **as an installed app**: from the iPad/iPhone Home Screen, the Android
+  icon, or a desktop app window (Chrome/Brave install, Safari *Add to Dock*);
+  or
+- **in any browser with the setup link**: `https://yoursite.com/app/?offline=1`.
+
+Once set up, a device keeps its offline copy and gets updates. Opening
+`…/app/?offline=0` on a device removes its copy again.
+
+`local` builds save for every visitor (`--offline-for all`), since they're
+meant for the machine they run on. You can pass either value to either target.
+
+## Installing on an iPad or phone
+
+1. Open the site in Safari on Wi-Fi, e.g. `https://yoursite.com/app`.
+2. Share → **Add to Home Screen**, then **open it from the icon**. The Home
+   Screen app has its own storage, separate from Safari, so the saving
+   happens there.
+3. Wait for **Ready offline ✓**. Keep the screen on until then.
 4. Test it: turn on Airplane Mode, force-quit, reopen from the icon.
+
+On Android, use Chrome's *Add to Home screen* / *Install app*.
+
+On a laptop: open `…/app/?offline=1`, wait for **Ready offline ✓**, then use
+`…/app/index.html`, which set-up devices switch to by themselves. For
+presentations, use browser fullscreen (Cmd+Ctrl+F; untick *View → Always Show
+Toolbar in Full Screen*), or Chrome/Brave's `--kiosk` mode.
 
 To test a fresh download:
 - **Chrome:** DevTools → Application → *Clear site data*.
@@ -152,6 +179,7 @@ It's loaded automatically, or you can pass `--config file.json`.
 | `--keep-embeds` | keep YouTube/Vimeo/maps/form embeds (they only work online) |
 | `--allow-indexing` | don't add `noindex` |
 | `--max-pages N` | crawl limit (default 500) |
+| `--offline-for all\|installed` | who saves the site for offline (default: installed for webflow-cloud, all for local) |
 | `--config FILE` | per-site rules (default `sites/<host>.json`) |
 
 ## Limits worth knowing

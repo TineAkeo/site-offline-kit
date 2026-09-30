@@ -330,7 +330,8 @@ function showResult(r) {
     ? `<div class="note info"><strong>Next:</strong><ol>
          <li>Push this folder to GitHub (below).</li>
          <li>First time only: in Webflow go to <b>Apps → Webflow Cloud → Create new app</b>, pick the repo, choose <b>Existing site</b>, and set the mount path to <code>${esc(r.base)}</code>. After that, every push redeploys.</li>
-         <li>On the iPad, open <code>https://your-site${esc(r.base)}</code> in Safari, tap Share → <b>Add to Home Screen</b>, and wait for “Ready offline ✓”.</li></ol></div>`
+         <li>On each iPad, open <code>https://your-site${esc(r.base)}</code> in Safari, tap Share → <b>Add to Home Screen</b>, <b>open it from the icon</b>, and wait for “Ready offline ✓”.</li></ol>
+         ${r.offline_for === "installed" ? `<p style="margin:8px 0 0">Only devices you set up save the site for offline: installed apps, or any browser opened with <code>${esc(r.base)}/?offline=1</code>. People you send the link to just browse it online.</p>` : ""}</div>`
     : `<div class="note info"><strong>Next:</strong> <b>Preview offline</b> opens it on this computer. Wait for “Ready offline ✓”, and it then works with no internet in that browser. To use it on iPads, upload the folder to Netlify or Cloudflare Pages (details in the kit's README).</div>`;
   $("next").innerHTML = html;
   setupPush(r);
