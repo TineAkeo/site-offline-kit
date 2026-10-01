@@ -483,6 +483,12 @@ def add_offline_support(name, noindex, start_page="/index.html", offline_for="al
     if noindex:
         head += '<meta name="robots" content="noindex, nofollow">'
     body = f'<script src="{BASE}/offline.js" data-offline="{offline_for}"></script>'
+    # First thing in <head>, before the site's own scripts: remember a setup
+    # link's ?offline=1 / =0 for this tab, so a home page that redirects at
+    # once (e.g. location.replace('/chapter1')) doesn't drop it. offline.js
+    # on the page it lands on picks it up.
+    early = ("<script>try{var m=/[?&]offline=([01])(?:&|$)/.exec(location.search);"
+             "if(m)sessionStorage.setItem('offline-setup',m[1])}catch(e){}</script>")
     shutil.copy(os.path.join(KIT, "runtime", "offline.js"), os.path.join(OUT, "offline.js"))
     produced.update({"/offline.js", "/sw.js", "/precache.json", "/manifest.json"})
 
@@ -509,6 +515,7 @@ def add_offline_support(name, noindex, start_page="/index.html", offline_for="al
             with open(fs, encoding="utf-8") as f:
                 html = f.read()
             if '/offline.js"' not in html:
+                html = re.sub(r"<head\b[^>]*>", lambda m: m.group(0) + early, html, count=1, flags=re.I)
                 html = html.replace("</head>", head + "</head>", 1)
                 html = html.replace("</body>", body + "</body>", 1)
                 with open(fs, "w", encoding="utf-8") as f:

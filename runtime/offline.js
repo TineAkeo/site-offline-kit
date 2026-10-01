@@ -22,6 +22,12 @@
   var listUrl = new URL('precache.json', here).href;
   var scope = new URL('./', swUrl).pathname;          // e.g. "/app/"
   var param = new URLSearchParams(location.search).get('offline');
+  // A setup link whose page redirected before this script ran: the build adds
+  // a tiny script at the top of <head> that remembers ?offline= for the tab.
+  try {
+    if (param === null) param = sessionStorage.getItem('offline-setup');
+    sessionStorage.removeItem('offline-setup');
+  } catch (_) {}
 
   var badge;
   function show(text, done) {
