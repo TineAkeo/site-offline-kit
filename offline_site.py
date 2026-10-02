@@ -222,6 +222,29 @@ def note_remote(absu, css_text=None):
                 note_remote(u)
 
 
+_resolved = {}
+
+
+def resolve_redirects(url):
+    """Final address of a media URL that redirects, e.g. a Pexels
+    /download/video/<id>/ link to the file on videos.pexels.com. The browser
+    can only save the file for offline if every hop allows it, so pages are
+    pointed at the final file instead."""
+    with lock:
+        if url in _resolved:
+            return _resolved[url]
+    try:
+        req = Request(url, headers={"User-Agent": UA, "Range": "bytes=0-0"})
+        final = with_retries(lambda: urlopen(req, timeout=30).geturl())
+    except Exception:
+        final = url  # verify_remote reports it if it's really broken
+    with lock:
+        _resolved[url] = final
+    if final != url:
+        print(f"  media redirects; using the final file: {url} -> {final[:100]}")
+    return final
+
+
 def download_asset(url):
     """Save one asset (recursing into CSS). Returns the href to use for it."""
     absu = "https:" + url if url.startswith("//") else url
@@ -380,8 +403,9 @@ def rewrite_attrs(html, page_url, on_page):
             # saving. Links (href) to other sites are left alone.
             if media and sp.netloc not in ASSET_HOSTS:
                 if REMOTE_HOSTS:  # webflow-cloud: the service worker saves it
-                    note_remote(absu.split("#")[0])
-                    return u
+                    final = resolve_redirects(absu.split("#")[0])
+                    note_remote(final)
+                    return u if final == absu.split("#")[0] else htmlmod.escape(final, quote=True)
                 return download_asset(absu.split("#")[0])
             return u
         if is_page_path(sp.path):
