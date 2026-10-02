@@ -85,6 +85,8 @@ asset_map = {}        # absolute url -> local href
 remote_urls = set()   # CDN URLs for the service worker to save
 produced = set()      # local paths written/kept this build (for pruning)
 failed = []
+warnings = []         # things that build fine but won't work offline
+MEDIA_EXT_RE = re.compile(r"\.(svg|png|jpe?g|gif|webp|avif|woff2?|mp4|webm|mov)$", re.I)
 
 
 # --- Fetching and local paths -------------------------------------------------------
@@ -121,7 +123,10 @@ def local_asset_path(url, ctype=""):
     if path.endswith("/"):
         path += "index"
     if "." not in os.path.basename(path):
-        for key, ext in (("javascript", ".js"), ("css", ".css"), ("json", ".json")):
+        for key, ext in (("javascript", ".js"), ("css", ".css"), ("json", ".json"),
+                         ("video/mp4", ".mp4"), ("video/webm", ".webm"), ("image/jpeg", ".jpg"),
+                         ("image/png", ".png"), ("image/webp", ".webp"), ("image/avif", ".avif"),
+                         ("image/gif", ".gif"), ("image/svg", ".svg")):
             if key in ctype:
                 path += ext
                 break
@@ -198,7 +203,22 @@ def note_remote(absu, css_text=None):
         ref = m.group(1) or m.group(2) or m.group(3) or m.group(5) or ""
         if ref and not ref.startswith(("data:", "#")):
             u = urljoin(absu, re.sub(r"\\(.)", r"\1", ref))
-            if asset_host_ok(urlsplit(u).netloc):
+            # Known hosts, plus images/fonts from anywhere (e.g. a Webflow
+            # stylesheet with backgrounds on s3.amazonaws.com/webflow-prod-assets).
+            sp = urlsplit(u)
+            if asset_host_ok(sp.netloc) or (sp.scheme in ("http", "https") and MEDIA_EXT_RE.search(sp.path)):
+                note_remote(u)
+    if absu.endswith(".js"):
+        # Images a script adds while the page runs, e.g. webflow.js's
+        # "Made in Webflow" badge, never appear in the HTML.
+        try:
+            js = fetch(absu)[0].decode("utf-8", "replace")
+        except Exception as e:
+            failed.append((absu, str(e)))
+            return
+        for u in set(ASSET_URL_RE.findall(js)):
+            u = "https:" + u if u.startswith("//") else u
+            if MEDIA_EXT_RE.search(urlsplit(u).path):
                 note_remote(u)
 
 
@@ -248,10 +268,12 @@ def rewrite_css(css, base_url):
         if not ref or ref.startswith(("data:", "#", BASE + "/assets/")):
             return m.group(0)  # (already pointing at a saved copy)
         absu = urljoin(base_url, re.sub(r"\\(.)", r"\1", ref))
-        host = urlsplit(absu).netloc
-        if not asset_host_ok(host):
+        sp = urlsplit(absu)
+        host = sp.netloc
+        any_host_media = sp.scheme in ("http", "https") and bool(MEDIA_EXT_RE.search(sp.path))
+        if not asset_host_ok(host) and not any_host_media:
             return m.group(0)
-        if host in REMOTE_HOSTS:
+        if host in REMOTE_HOSTS or (REMOTE_HOSTS and not asset_host_ok(host)):
             note_remote(absu)
             return m.group(0)
         href = download_asset(absu)
@@ -339,7 +361,7 @@ ATTR_RE = re.compile(
 def rewrite_attrs(html, page_url, on_page):
     """Point links at saved pages and same-site files at saved copies.
     (Files on CDN hosts are handled by rewrite_abs_assets.)"""
-    def one(u):
+    def one(u, media):
         raw = u.strip()
         if not raw or raw.startswith(("#", "data:", "mailto:", "tel:", "javascript:", "blob:", "{")):
             return u
@@ -354,6 +376,13 @@ def rewrite_attrs(html, page_url, on_page):
             # that the free-text URL scan would cut short.
             if sp.netloc in ASSET_HOSTS and sp.query and sp.netloc not in REMOTE_HOSTS:
                 return download_asset(absu.split("#")[0])
+            # Images and video from any other host (Pexels, S3, ...) still need
+            # saving. Links (href) to other sites are left alone.
+            if media and sp.netloc not in ASSET_HOSTS:
+                if REMOTE_HOSTS:  # webflow-cloud: the service worker saves it
+                    note_remote(absu.split("#")[0])
+                    return u
+                return download_asset(absu.split("#")[0])
             return u
         if is_page_path(sp.path):
             norm = norm_page(sp.path)
@@ -365,18 +394,19 @@ def rewrite_attrs(html, page_url, on_page):
     def repl(m):
         attr, q, val = m.groups()
         name = attr.strip().split("=")[0].strip().lower()
+        media = name != "href"
         if name in ("srcset", "data-srcset"):
             items = []
             for item in val.split(","):
                 bits = item.strip().split(None, 1)
                 if bits:
-                    bits[0] = one(bits[0])
+                    bits[0] = one(bits[0], media)
                 items.append(" ".join(bits))
             val = ", ".join(items)
         elif name == "data-video-urls":
-            val = ",".join(one(x) for x in val.split(","))
+            val = ",".join(one(x, media) for x in val.split(","))
         else:
-            val = one(val)
+            val = one(val, media)
         return attr + q + val + q
     return ATTR_RE.sub(repl, html)
 
@@ -455,21 +485,39 @@ def webm_with_mp4_twin(urls):
 
 
 def verify_remote():
-    """Drop CDN URLs that are dead (pages sometimes reference deleted images)."""
+    """Check the files left on other hosts before listing them for offline:
+    drop dead ones (pages sometimes reference deleted images), and ones whose
+    host doesn't allow other sites to save them (no CORS header: the service
+    worker couldn't store them readably). Returns (alive urls, total bytes)."""
+    origin = "https://offline-app.invalid"
+
     def check(u):
-        with urlopen(Request(u, headers={"User-Agent": UA, "Range": "bytes=0-0"}), timeout=30) as r:
-            return r.status in (200, 206)
+        req = Request(u, headers={"User-Agent": UA, "Range": "bytes=0-0", "Origin": origin})
+        with urlopen(req, timeout=30) as r:
+            if r.status not in (200, 206):
+                return None
+            if not r.headers.get("Access-Control-Allow-Origin"):
+                return "no-cors"
+            total = r.headers.get("Content-Range", "").rpartition("/")[2]
+            return int(total) if total.isdigit() else int(r.headers.get("Content-Length") or 0)
 
     def ok(u):
         try:
             return with_retries(lambda: check(u))
         except Exception as e:
             failed.append((u, str(e)))
-            return False
+            return None
     urls = sorted(remote_urls)
     with ThreadPoolExecutor(16) as ex:
-        alive = list(ex.map(ok, urls))
-    return [u for u, a in zip(urls, alive) if a]
+        results = list(ex.map(ok, urls))
+    alive, size = [], 0
+    for u, r in zip(urls, results):
+        if r == "no-cors":
+            warnings.append(f"can't be saved for offline (its host doesn't allow it): {u}")
+        elif r is not None:
+            alive.append(u)
+            size += r
+    return alive, size
 
 
 def app_id():
@@ -530,7 +578,9 @@ def add_offline_support(name, noindex, start_page="/index.html", offline_for="al
         hashes[href_for(local)] = digest
         sig.update(f"{local}:{digest}".encode())
 
-    remote = verify_remote() if remote_urls else []
+    remote, remote_bytes = verify_remote() if remote_urls else ([], 0)
+    local_bytes = sum(os.path.getsize(os.path.join(OUT, unquote(u[len(BASE):]).lstrip("/")))
+                      for u in local_files)
     everything = local_files + remote
     skip = webm_with_mp4_twin(everything)
     files = [u for u in everything if u not in skip] + [href_for("/precache.json")]
@@ -547,7 +597,7 @@ def add_offline_support(name, noindex, start_page="/index.html", offline_for="al
         sw = f.read().replace("__APP__", app).replace("__VERSION__", version)
     with open(os.path.join(OUT, "sw.js"), "w") as f:
         f.write(sw)
-    return len(files), len(remote), version
+    return len(files), len(remote), version, (local_bytes + remote_bytes) / 1048576
 
 
 def site_name(home_html, fallback):
@@ -746,7 +796,7 @@ def main():
     noindex = not args.allow_indexing
     write_target_files(args.target, noindex)
     offline_for = args.offline_for or ("installed" if args.target == "webflow-cloud" else "all")
-    n_files, n_remote, version = add_offline_support(args.name or site_name(home_html, bare), noindex,
+    n_files, n_remote, version, offline_mb = add_offline_support(args.name or site_name(home_html, bare), noindex,
                                                      start_page=page_local(start_norm),
                                                      offline_for=offline_for)
     transient = [(u, e) for u, e in failed if not PERMANENT_ERROR_RE.match(e)]
@@ -766,6 +816,9 @@ def main():
     saved_pages = sum(1 for p in produced if p.endswith(".html"))
     print(f"\nDone: {saved_pages} pages, {n_files} files for offline "
           f"({n_remote} on the CDN), version {version}.")
+    print(f"Offline download per device: about {offline_mb:.0f} MB")
+    for w in warnings:
+        print("Warning:", w)
     if pruned:
         print(f"Removed {pruned} stale files from the previous build.")
     mb = compressed_mb()
@@ -786,6 +839,7 @@ def main():
         "offline_for": offline_for,
         "out": OUT, "pages": saved_pages, "files": n_files, "cdn_files": n_remote,
         "version": version, "compressed_mb": round(mb, 1), "failed": len(failed),
+        "offline_mb": round(offline_mb), "warnings": warnings[:40],
         "failures": [f"{e} {u}" for u, e in failed[:40]],
         "built_at": datetime.datetime.now().isoformat(timespec="seconds"),
     }
