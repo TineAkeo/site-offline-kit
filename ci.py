@@ -56,9 +56,15 @@ def main():
         save(CFG, cfg)
         first = True
     if not cfg["url"]:
-        summary("## Setup needed\n\nRun this workflow from the **Actions** tab "
-                "(*Rebuild offline app → Run workflow*) and fill in **site_url** "
-                "with the live site, e.g. `https://www.example.com`.")
+        message = ("## Setup needed\n\nRun this workflow from the **Actions** tab "
+                   "(*Rebuild offline app → Run workflow*) and fill in **site_url** "
+                   "with the live site, e.g. `https://www.example.com`.")
+        if os.environ.get("GITHUB_EVENT_NAME") == "schedule":
+            # The template repo itself, or a new repo before its first run:
+            # nothing to check yet, so the daily safety net isn't a failure.
+            summary(message.replace("## Setup needed", "## No site set yet: skipped"))
+            return
+        summary(message)
         sys.exit(1)
     if not os.path.isfile(HOOK):
         save(HOOK, {"secret": secrets.token_urlsafe(24),
