@@ -8,7 +8,8 @@ It copies this kit into <repo>/.kit/, writes the site settings to
 .kit/site.json, and adds the GitHub Actions workflow
 .github/workflows/offline-rebuild.yml. The workflow rebuilds from the live
 site when Webflow's "Site publish" webhook arrives (through
-offline-publish-relay), when run by hand, and once a day as a safety net.
+offline-publish-relay) and when run by hand (optionally also on a
+schedule, with --cron).
 It commits and pushes only real changes; Webflow Cloud redeploys on push.
 Dot folders like .kit and .github aren't deployed by Webflow Cloud.
 
@@ -47,8 +48,9 @@ def main():
     ap.add_argument("--target", choices=["webflow-cloud", "local"], default="webflow-cloud")
     ap.add_argument("--base", default="/app", help='mount path for webflow-cloud (default "/app")')
     ap.add_argument("--relay", default=DEFAULT_RELAY, help="address of offline-publish-relay")
-    ap.add_argument("--cron", default="23 3 * * *",
-                    help="daily safety-net check, GitHub cron syntax in UTC (default 03:23)")
+    ap.add_argument("--cron", default="",
+                    help='also check on a schedule, GitHub cron syntax in UTC, e.g. "23 3 * * *" '
+                         "for daily (default: only on publish and by hand)")
     args = ap.parse_args()
 
     repo = os.path.abspath(os.path.expanduser(args.repo))
@@ -91,7 +93,8 @@ def main():
     wf_dir = os.path.join(repo, ".github", "workflows")
     os.makedirs(wf_dir, exist_ok=True)
     with open(os.path.join(KIT, "templates", "offline-rebuild.yml")) as f:
-        workflow = f.read().replace("__CRON__", args.cron)
+        schedule = f'  schedule:\n    - cron: "{args.cron}"\n' if args.cron else ""
+        workflow = f.read().replace("__SCHEDULE__", schedule)
     with open(os.path.join(wf_dir, "offline-rebuild.yml"), "w") as f:
         f.write(workflow)
 
@@ -105,7 +108,8 @@ def main():
 
     print(f"Set up rebuild-on-publish in {repo}")
     print(f"  .kit/        kit copy + site.json (site: {url or '(set on first run)'})")
-    print(f"  workflow     .github/workflows/offline-rebuild.yml (safety net: {args.cron} UTC)")
+    print("  workflow     .github/workflows/offline-rebuild.yml (runs on publish and by hand"
+          + (f", plus schedule {args.cron} UTC)" if args.cron else ")"))
     if not args.template:
         slug = repo_slug(repo) or "<owner>/<repo>"
         secret = json.load(open(hook_path))["secret"]

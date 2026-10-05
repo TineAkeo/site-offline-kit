@@ -61,7 +61,7 @@ def main():
                    "with the live site, e.g. `https://www.example.com`.")
         if os.environ.get("GITHUB_EVENT_NAME") == "schedule":
             # The template repo itself, or a new repo before its first run:
-            # nothing to check yet, so the daily safety net isn't a failure.
+            # nothing to check yet, so a scheduled run (if one is set up) isn't a failure.
             summary(message.replace("## Setup needed", "## No site set yet: skipped"))
             return
         summary(message)

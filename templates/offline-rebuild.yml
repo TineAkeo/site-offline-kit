@@ -1,6 +1,6 @@
 # Rebuilds the offline app from the live site and deploys it when it changed.
-# Started by Webflow's "Site publish" webhook (through offline-publish-relay),
-# by hand from the Actions tab, and once a day as a safety net.
+# Started by Webflow's "Site publish" webhook (through offline-publish-relay)
+# and by hand from the Actions tab.
 # Settings live in .kit/site.json; the build logic in .kit/ci.py.
 # Written by site-offline-kit's setup_autorebuild.py.
 name: Rebuild offline app
@@ -17,9 +17,7 @@ on:
         description: "Rebuild even if the site wasn't republished"
         type: boolean
         default: false
-  schedule:
-    - cron: "__CRON__"
-
+__SCHEDULE__
 permissions:
   contents: write
 
